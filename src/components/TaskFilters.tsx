@@ -1,4 +1,4 @@
-export function TaskFilters() {
+export default function TaskFilters() {
   return (
     <section className="panel" aria-labelledby="filters-title">
       <div className="section-heading">

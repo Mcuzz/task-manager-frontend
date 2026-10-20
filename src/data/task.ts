@@ -3,7 +3,7 @@ export const tasks: Task[] = [
     {
         id: 'task-001',
         title: 'Configurar el proyecto React',
-        status: 'completed',
+        status: 'pending',
         createdAt: '2026-09-21T16:00:00.000Z',
         updatedAt: '2026-09-21T18:30:00.000Z',
     },

@@ -1,4 +1,6 @@
-import { NavLink } from "react-router";
+
+import { NavLink, type NavLinkRenderProps } from "react-router";
+
 export function AppNavigation() {
   return (
     <nav className="app-navigation" aria-label="Navegación principal">
@@ -7,7 +9,7 @@ export function AppNavigation() {
           <NavLink
             to="/"
             end
-            className={({ isActive }) =>
+            className={({ isActive }: NavLinkRenderProps) =>
               [
                 "app-navigation__link",
                 isActive ? "app-navigation__link--active" : "",
@@ -19,10 +21,11 @@ export function AppNavigation() {
             Inicio
           </NavLink>
         </li>
+
         <li>
           <NavLink
             to="/tasks"
-            className={({ isActive }) =>
+            className={({ isActive }: NavLinkRenderProps) =>
               [
                 "app-navigation__link",
                 isActive ? "app-navigation__link--active" : "",

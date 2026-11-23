@@ -1,6 +1,7 @@
 
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { useAuth } from "../hooks/useAuth";
 import type { Task } from "../models/task.interface";
 import {
   getHttpErrorMessage,
@@ -13,90 +14,109 @@ import { NotFoundPage } from "./NotFoundPage";
 
 type DetailStatus = "loading" | "success" | "not-found" | "error";
 
-export function TaskDetailPage() {
-  const { taskId } = useParams<{
-    taskId: string;
-  }>();
+interface DetailState {
+  task: Task | null;
+  status: DetailStatus;
+  errorMessage: string;
+}
 
+function TaskDetailContent({
+  taskId,
+  accessToken,
+  canDelete,
+}: {
+  taskId: string;
+  accessToken: string;
+  canDelete: boolean;
+}) {
   const navigate = useNavigate();
 
-  const [task, setTask] = useState<Task | null>(null);
-  const [status, setStatus] = useState<DetailStatus>("loading");
-  const [errorMessage, setErrorMessage] = useState("");
+  const [state, setState] = useState<DetailState>({
+    task: null,
+    status: "loading",
+    errorMessage: "",
+  });
+
   const [reloadKey, setReloadKey] = useState(0);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // El estado not-found se deriva directamente del parámetro de ruta.
-  const currentStatus: DetailStatus = !taskId ? "not-found" : status;
-
   useEffect(() => {
-    if (!taskId) return;
-    const currentTaskId = taskId;
-
     const controller = new AbortController();
 
+    // La petición se ejecuta de forma asíncrona.
     async function loadTask(): Promise<void> {
-      setStatus("loading");
-      setErrorMessage("");
-
       try {
-        const response = await getTaskById(currentTaskId, controller.signal);
+        const response = await getTaskById(
+          taskId,
+          accessToken,
+          controller.signal,
+        );
 
         if (controller.signal.aborted) return;
 
-        setTask(response.data);
-        setStatus("success");
+        setState({
+          task: response.data,
+          status: "success",
+          errorMessage: "",
+        });
       } catch (error) {
-        if (isAbortError(error) || controller.signal.aborted) {
+        if (controller.signal.aborted || isAbortError(error)) {
           return;
         }
 
         if (isHttpError(error) && error.status === 404) {
-          setTask(null);
-          setStatus("not-found");
+          setState({
+            task: null,
+            status: "not-found",
+            errorMessage: "",
+          });
           return;
         }
 
-        setStatus("error");
-        setErrorMessage(getHttpErrorMessage(error));
+        setState({
+          task: null,
+          status: "error",
+          errorMessage: getHttpErrorMessage(error),
+        });
       }
     }
 
     void loadTask();
 
     return () => controller.abort();
-  }, [taskId, reloadKey]);
+  }, [taskId, accessToken, reloadKey]);
 
   async function handleDelete(): Promise<void> {
-    if (!task) {
-      return;
-    }
+    if (!state.task || !canDelete) return;
 
     const shouldDelete = window.confirm(
-      `¿Eliminar la tarea "${task.title}"?`,
+      `¿Eliminar la tarea "${state.task.title}"?`,
     );
 
-    if (!shouldDelete) {
-      return;
-    }
+    if (!shouldDelete) return;
 
     setIsDeleting(true);
 
     try {
-      await deleteTask(task.id);
+      await deleteTask(state.task.id, accessToken);
       navigate("/tasks", { replace: true });
     } catch (error) {
-      setStatus("error");
-      setErrorMessage(getHttpErrorMessage(error));
+      setState((current) => ({
+        ...current,
+        status: "error",
+        errorMessage: getHttpErrorMessage(error),
+      }));
       setIsDeleting(false);
     }
   }
 
-  if (currentStatus === "loading") {
+  const { task, status, errorMessage } = state;
+
+  if (status === "loading") {
     return <p role="status">Consultando tarea...</p>;
   }
 
-  if (currentStatus === "not-found") {
+  if (status === "not-found") {
     return (
       <NotFoundPage
         title="Tarea no encontrada"
@@ -105,14 +125,21 @@ export function TaskDetailPage() {
     );
   }
 
-  if (currentStatus === "error" || !task) {
+  if (status === "error" || !task) {
     return (
       <section className="panel" role="alert">
         <h2>No fue posible consultar la tarea</h2>
         <p>{errorMessage}</p>
         <button
           type="button"
-          onClick={() => setReloadKey((current) => current + 1)}
+          onClick={() => {
+            setState({
+              task: null,
+              status: "loading",
+              errorMessage: "",
+            });
+            setReloadKey((current) => current + 1);
+          }}
         >
           Reintentar
         </button>
@@ -121,8 +148,13 @@ export function TaskDetailPage() {
   }
 
   return (
-    <article className="panel task-detail" aria-labelledby="task-detail-title">
-      <p className="section-heading__eyebrow">Detalle remoto</p>
+    <article
+      className="panel task-detail"
+      aria-labelledby="task-detail-title"
+    >
+      <p className="section-heading__eyebrow">
+        Detalle protegido
+      </p>
 
       <h2 id="task-detail-title">{task.title}</h2>
 
@@ -135,7 +167,9 @@ export function TaskDetailPage() {
         <div>
           <dt>Estado</dt>
           <dd>
-            {task.status === "completed" ? "Completada" : "Pendiente"}
+            {task.status === "completed"
+              ? "Completada"
+              : "Pendiente"}
           </dd>
         </div>
 
@@ -158,20 +192,63 @@ export function TaskDetailPage() {
         </div>
       </dl>
 
+      {!canDelete && (
+        <p className="permission-note">
+          La eliminación requiere el rol admin.
+        </p>
+      )}
+
       <div className="task-detail__actions">
-        <Link className="button-link button-link--secondary" to="/tasks">
+        <Link
+          className="button-link button-link--secondary"
+          to="/tasks"
+        >
           Volver a tareas
         </Link>
 
-        <button
-          type="button"
-          className="button-danger"
-          disabled={isDeleting}
-          onClick={() => void handleDelete()}
-        >
-          {isDeleting ? "Eliminando..." : "Eliminar tarea"}
-        </button>
+        {canDelete && (
+          <button
+            type="button"
+            className="button-danger"
+            disabled={isDeleting}
+            onClick={() => void handleDelete()}
+          >
+            {isDeleting ? "Eliminando..." : "Eliminar tarea"}
+          </button>
+        )}
       </div>
     </article>
+  );
+}
+
+export function TaskDetailPage() {
+  const { taskId } = useParams<{ taskId: string }>();
+  const { accessToken, user } = useAuth();
+
+  if (!taskId) {
+    return (
+      <NotFoundPage
+        title="Tarea no encontrada"
+        message="La tarea no existe o fue eliminada."
+      />
+    );
+  }
+
+  if (!accessToken) {
+    return (
+      <section className="panel" role="alert">
+        <h2>No fue posible consultar la tarea</h2>
+        <p>La sesión no está disponible.</p>
+      </section>
+    );
+  }
+
+  return (
+    <TaskDetailContent
+      key={`${taskId}:${accessToken}`}
+      taskId={taskId}
+      accessToken={accessToken}
+      canDelete={user?.role === "admin"}
+    />
   );
 }
